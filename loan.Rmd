@@ -1,0 +1,1286 @@
+---
+title: "Loan Sanction Amount Prediction Project"
+subtitle : "Harvardx's Data Science Professional Certificate" 
+author: "Otman Cherrati"
+date: "7/25/2021"
+output: 
+  pdf_document: 
+    toc: yes
+    number_sections: yes
+---
+
+```{r setup, include=FALSE, echo=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.align = 'center', cache=FALSE,
+                      cache.lazy = FALSE)
+```
+
+\newpage
+
+
+# Intorduction :
+
+  This report is the second part of the final capstone course of HarvardX Data Science Professional certificate taught by the famous professor Rafael Irizzary. The report is on  loan sanction amount prediction.
+  
+  Buying a house requires a lot of careful planning. Once you have finalized your budget and the house that you want to buy, you must ensure that you have sufficient funds to pay the seller.
+
+  With rising property rates, most people avail home loans to buy their dream houses. The bank only lends up to 80% of the total amount based on a person's finances (salary, outgoing expenses, existing loans, etc.). You will need to make the rest of the payment yourself after the bank tells you how much they can lend.
+
+## Object :
+   Our goal in this analysis is to predict the loan amount that can be sanctioned to customers who have applied for a home loan using the features provided in the dataset (by XYZ Bank). We will do this by building a model capable of generate predictions of the loan amount  to be approved for a client using a training set.
+  We will start by taking a look on the dataset and then exploring the different variables to see if there any trends that can help us in the analysis.
+  After cleaning the data we will start building and testing our models.
+  Finally we will discuss the result obtained by the different models and chose the one that performed the best.
+  The evaluation is based on the RMSE - Root Mean Squared Error built under the caret package. $$\mbox{RMSE} = \sqrt{\frac{1}{n}\sum_{t=1}^{n}e_t^2}$$
+  \vspace{0.5cm}
+  
+## package used :
+
+  **tidyverse** \
+  **data.table** \
+  **caret** \
+  **Xgboost** \
+  **corrplot**\
+  
+```{r, include=FALSE, echo=FALSE}
+# Install all needed libraries if it is not present
+# Install all needed libraries if it is not present ####
+if(!require(tidyverse)) install.packages("tidyverse") 
+if(!require(caret)) install.packages("caret")
+if(!require(data.table)) install.packages("data.table")
+if(!require(corrplot)) install.packages("corrplot")
+if(!require(xgboost)) install.packages("Xgboost")
+```
+
+```{r, include=FALSE, echo=FALSE}
+# load libraries
+library(tidyverse)
+library(data.table)
+library(caret)
+library(xgboost)
+library(corrplot)
+```
+
+\vspace{1cm}
+## SessionInfo() :
+The output of sessionInfo() is placed here for reproducibility purposes.
+```{r, echo=FALSE}
+sessionInfo()
+```
+
+
+\vspace{1cm}
+## Load the loan data set :
+```{r, include=FALSE, echo=FALSE}
+unzip("loan_amount.zip")
+loan_data <- fread("train.csv", na.strings = "")
+file.remove("test.csv") # Doesn't contain the target variable, it can be  used only for kaggle competition
+file.remove("sample_submission.csv") # Format of kaggle submission
+
+```
+
+## Dataset Description
+
+   This data set contains the information about the customers who applied for a home loan during an undefined period of time in an unknown bank. 
+   It was uploaded from kaggle on "https://www.kaggle.com/zyper26/sanction-loan". 
+  
+   The downloaded zip file contains three data sets : "train", "test" and "submission" but we will be using just the train file since the "test" data doesn't have the output variable in it and is used only for competition on kaggle just like the "submission" file.
+   
+  We can get the zip file using this link "https://www.kaggle.com/zyper26/sanction-loan/download"
+
+\newpage
+# Data Exploration :
+
+## Initial exploration :
+
+**Check the top six rows and six columns of the data set** :
+
+```{r , echo=FALSE}
+loan_data[1:6, 1:6] %>% head() %>% knitr::kable()
+```
+
+\vspace{1cm}
+**Inspect the dataset for dimensions**\
+The loan data contains 30000 rows and 24 columns
+```{r , echo=FALSE}
+dim(loan_data) %>% knitr::kable()
+```
+
+
+**Check the structure of the data** \
+Inspect the dataframe for the class of the different variables
+```{r , echo=FALSE}
+str(loan_data)
+```
+\vspace{1cm}
+
+\newpage 
+**The features of the data set are  :** \
+```{r , echo=FALSE}
+names(loan_data)
+```
+ We can see that the data contains the customers names, it's obvious that they are not real names, but any data analyst should anonymize data before working on it. So we will drop the name column.
+```{r echo=FALSE}
+loan_data <- loan_data %>% select(-Name)
+```
+ 
+\vspace{1cm}
+**Count missing values in each column** : \
+.
+```{r, echo=FALSE}
+nas <- sapply(loan_data, function(i){
+  sum(is.na(i))
+}) 
+
+nas %>% as.data.frame() %>% knitr::kable()
+```
+
+
+\newpage
+**List all of the columns having missing values with percentage**
+```{r, echo=FALSE}
+loan_data %>% select(names(which(nas != 0))) %>% 
+  sapply(function(i){
+  mean(is.na(i))}) %>% 
+  as.data.frame()  %>%
+  knitr::kable()
+
+rm(nas)
+```
+
+
+
+## dealing with nas
+Since there is a lot of features with nas, we will  first deal with those na's column by culumn, removing some and replacing the others \
+
+### loan sanction amount : the outcome variable
+
+```{r echo=FALSE, fig.height=3, message=FALSE, warning=FALSE}
+loan_data %>% ggplot(aes(`Loan Sanction Amount (USD)`)) +
+  geom_histogram(color = "black") + 
+  ggtitle("loan sanction amount distrbution") + theme_bw()
+```
+
+There are 340 nas and 338 values less than 0 which doesn't make sense, we will remove the missing outcomes, and replace the others with 0.
+```{r echo=FALSE}
+na <- sum(is.na(loan_data$`Loan Sanction Amount (USD)`))
+paste("The number of Na's ", na)
+neg <- sum(loan_data$`Loan Sanction Amount (USD)` < 0, na.rm = TRUE)
+paste("The number of values less than '0' is", neg)
+```
+
+```{r echo=FALSE}
+  # remove loan = na
+loan_data <- loan_data %>% filter(!is.na(`Loan Sanction Amount (USD)`))
+
+   # loan amount < 0 to 0 , since the loan must be >= 0
+loan_data$`Loan Sanction Amount (USD)`[which(
+  loan_data$`Loan Sanction Amount (USD)` < 0)] <- 0
+```
+
+\vspace{1cm}
+### gender
+
+There is as much "Females" as "males" in the data set and the number of nas is small, so we will replace them equitably by the 2 classes "F" and "M".
+```{r, echo=FALSE}
+table(loan_data$Gender) %>% as.data.frame() %>%  knitr::kable()
+```
+
+
+```{r, echo=FALSE}
+na <- sum(is.na(loan_data$Gender)) 
+paste("The number of missing values is", na)
+
+#Replace the 52 nas with "F" or "M" 
+  loan_data$Gender[which(
+  is.na(loan_data$Gender))] <- rep(c("F", "M"), times = 26)
+```
+ 
+
+\vspace{0.5cm}
+### income stability
+
+The classes low is predominant, we will replace the nas with the dominant class
+```{r echo=FALSE}
+table(loan_data$`Income Stability`) %>% as.data.frame() %>% 
+  knitr::kable()
+```
+
+
+```{r echo=FALSE}
+na <- sum(is.na(loan_data$`Income Stability`))
+paste("The number of missing values is", na)
+```
+
+
+```{r echo=FALSE}
+loan_data$`Income Stability`[which(
+  is.na(loan_data$`Income Stability`))] <- "Low"
+```
+
+
+### type of employment
+
+We have 18 different type of employment, and there is a great number of missing values most than any other class, it would be better to create a new class named "other" and assign the nas to it.
+```{r echo=FALSE}
+table(loan_data$`Type of Employment`) %>% sort(decreasing = TRUE) %>%
+  as.data.frame() %>% knitr::kable()
+```
+
+```{r echo=FALSE}
+na <- sum(is.na(loan_data$`Type of Employment`))
+paste("The number of missing values is", na)
+```
+
+```{r echo=FALSE}
+loan_data$`Type of Employment`[which(
+  is.na(loan_data$`Type of Employment`))] <- "other"
+```
+
+
+### dependent
+There is 14 classes (1 to 14) in the dependent variable, we can see that the class "2" is prevailing and that some classes have insignificant number (classes from 6 to 14), we will replace nas and classes that are almost insignificant in number with the dominant class.
+```{r echo=FALSE}
+table(loan_data$Dependents) %>% knitr::kable()
+```
+
+```{r echo=FALSE}
+na <- sum(is.na(loan_data$Dependents))
+paste("The number of missing values is", na)
+```
+
+```{r echo=FALSE}
+loan_data$Dependents[which(
+  is.na(loan_data$Dependents))] <- 2
+
+loan_data$Dependents[loan_data$Dependents %in% 5:14] <- 2
+```
+ 
+ 
+### Has active card
+We can see that the three classes of this variable have almost the same number of count, so We will split the number nas equitably between the 3 classes.
+```{r echo=FALSE}
+table(loan_data$`Has Active Credit Card`) %>% knitr::kable()
+```
+ 
+
+
+```{r echo=FALSE}
+na <- sum(is.na(loan_data$`Has Active Credit Card`))
+paste("The number of missing values is", na)
+```
+
+ 
+````{r echo=FALSE}
+loan_data$`Has Active Credit Card`[
+  which(is.na(loan_data$`Has Active Credit Card`))] <- c(
+           rep(c("Active", "Inactive","Unpossessed"), times = 515), "Active")
+````
+
+
+
+### property location 
+As before there is almost the three classes have almost the same count, we will replace the nas by the three classes equitably.
+```{r echo=FALSE}
+table(loan_data$`Property Location`) 
+```
+
+```{r echo=FALSE}
+na <- sum(is.na(loan_data$`Property Location`))
+paste("The number of missing values is", na)
+```
+
+```{r echo=FALSE}
+loan_data$`Property Location`[which(
+  is.na(loan_data$`Property Location`))] <- c(
+                                     rep(c("Rural", "Semi-Urban","Urban"),
+                                         times = 115), 
+                                     "Semi-Urban", "Semi-Urban")
+```
+
+
+
+### income
+Income summary
+````{r echo=FALSE}
+summary(loan_data$`Income (USD)`) # 4493 nas
+```
+\vspace{0.5cm}
+
+  
+ From the summary of this continuous feature we can that there are big outliers which must affect the mean,  in this case we will replace nas with the median.
+```{r echo=FALSE}  
+loan_data$`Income (USD)`[which(
+  is.na(loan_data$`Income (USD)`))] <- median(loan_data$`Income (USD)`,
+                                            na.rm = TRUE)
+```
+
+
+\vspace{1cm}
+### current loan expenses
+Current loan summary
+```{r echo=FALSE}
+summary(loan_data$`Current Loan Expenses (USD)`) # 167 nas
+```
+
+
+```{r echo=FALSE}
+ng <- mean(loan_data$`Current Loan Expenses (USD)` < 0, na.rm = TRUE) 
+paste("the percentage of nagative values is", ng)
+```
+
+There number of nas is 167, and we notice the existence of some negative values(174), since the number is small we will consider those values outliers, and replace both nas and values less than 0 by the median.
+
+
+````{r echo=FALSE}
+loan_data$`Current Loan Expenses (USD)`[which(
+  is.na(loan_data$`Current Loan Expenses (USD)`))] <- median(
+    loan_data$`Current Loan Expenses (USD)`, na.rm = TRUE)
+```
+
+```{r echo=FALSE}
+loan_data$`Current Loan Expenses (USD)`[which(
+  loan_data$`Current Loan Expenses (USD)` < 0)] <- median(
+    loan_data$`Current Loan Expenses (USD)`, na.rm = TRUE)
+```
+
+
+\vspace{0.5cm}
+### Credit score
+Credit score summary
+```{r echo=FALSE}
+summary(loan_data$`Credit Score`) # 1670 na's
+```
+
+```{r echo=FALSE, fig.height=3, message=FALSE, warning=FALSE}
+loan_data %>% ggplot(aes(`Credit Score`)) +
+  geom_histogram(color = "black") + theme_bw() +
+  ggtitle("Credit score dist")
+```
+
+
+We can see that the distribution of this variable is almost square between the 1st and 3rd quartiles, then most values are between 680 and 800 with small variation, we replace nas with a sequence of 1670 (number of nas) values between 680 and 800 so as to not affect the distribution.
+
+```{r echo=FALSE}
+loan_data$`Credit Score`[which(
+  is.na(loan_data$`Credit Score`))] <- seq(680, 800, length = 1670)
+```
+
+
+### Property age
+```{r echo=FALSE}
+summary(loan_data$`Property Age`) 
+```
+From the summary we notice that there is 4760 nas and there is some big outliers which may be driving the mean, so it would be better to replace nas by the median.
+
+```{r echo=FALSE}
+loan_data$`Property Age`[which(
+  is.na(loan_data$`Property Age`))] <- median(loan_data$`Property Age`,
+                                              na.rm = TRUE)
+```
+
+\vspace{1cm}
+## Exploring continuous features
+After some data cleaning, we can now go through variables exploration, we will
+start first with continous features. \
+\vspace{0.5cm}
+ **heatmap of continuous features**
+
+```{r echo=FALSE}
+M <- loan_data %>% select(-`Property ID`) %>% select_if(is.numeric) %>% cor()
+heatmap(M, scale = "column")
+rm(M)
+```
+We notice that there is strong correlation between some variables and week correlation for others, we will analyze each feature to see if can get some farther insights.
+
+### customer ID :\
+We notice that all the customers in this data are unique.
+```{r echo=FALSE}
+paste("The number of customers is ", length(unique(loan_data$`Customer ID`)))
+```
+
+\newpage
+### age
+**summary**
+```{r echo=FALSE, fig.width=4, warning=FALSE}
+summary(loan_data$Age)
+```
+
+```{r echo=FALSE, fig.height=3.5, message=FALSE, warning=FALSE}
+loan_data %>% ggplot(aes(Age)) + theme_bw() +
+  geom_histogram(color = "black") +
+  ggtitle("Age distribution")
+```
+The distribution of the age is almost stable a part the existence of a pick in the 18 age value with 14% having the age of 18 years, the mean is 40 years and the range is 47 years.
+
+```{r echo=FALSE, fig.height=3.5, warning=FALSE}
+loan_data %>% mutate( age = as.factor(Age)) %>% group_by(age) %>%
+  ggplot(aes(x = age, y = `Loan Sanction Amount (USD)`, fill = age)) +
+  geom_boxplot() + ylab("loan amount") +
+  theme_bw() + ylim(c(0, 10^5)) +
+  theme(axis.text.x = element_text(
+                          angle = 90, hjust = 1),legend.position = "none") +
+  ggtitle("Boxplot of loan sanction amount vs age")
+```
+
+ From the boxplot we can see that customers with all ages has almost the same chances of getting loans, but ther are many outliers in the amount approved.
+
+### income
+ 
+```{r echo=FALSE, fig.height=3.5, message=FALSE, warning=FALSE}
+loan_data %>% ggplot(aes(`Income (USD)`)) + 
+  geom_histogram( color = "black") +
+  scale_x_continuous(trans = "log10", limits = c(300, 10^5)) +
+  ggtitle("Income distribution") + theme_bw()
+```
+  From the plot we can notice that there is many outliers that are driving the  distribution, excluding the those outliers the distribution is almost symmetric.
+
+
+```{r echo=FALSE, fig.height=3.5}
+loan_data  %>%
+  ggplot(aes(`Income (USD)`, `Loan Sanction Amount (USD)`)) +
+  geom_point() + scale_x_continuous(limits = c(0, 2*10^4)) +
+  ylab("loan Sanction") + 
+  theme_bw() + ggtitle("loan sanction amount vs income")
+```
+ We notice a positive correlation between the income and the loan sanction amount, there also many big outliers and null loan amount values, those may affect the results of a model.
+
+### Loan amount request
+
+```{r echo=FALSE, fig.height=4, message=FALSE, warning=FALSE}
+loan_data %>% ggplot(aes(`Loan Amount Request (USD)`)) +
+  geom_histogram(color = "black") +
+  theme_bw() + ggtitle("Loan amount request dist.")
+```
+ The distribution is right skewed, this means that most customers apply for big amounts of home loans.
+
+```{r echo=FALSE, fig.height=4}
+loan_data %>% ggplot(
+  aes(`Loan Amount Request (USD)`, `Loan Sanction Amount (USD)`)) +
+  geom_point() + ylab("loan_sanction") +
+  xlab("loan_request") + 
+  theme_bw() + ggtitle("Loan sanction amount vs loan request amount")
+```
+ A part the null values representing the non approved loans we notice that there is a strong correlation between the amount requested and the amount approved, this may be very useful in building the predictions model.
+
+### Current loan expenses
+
+```{r echo=FALSE, fig.height=4, message=FALSE, warning=FALSE}
+loan_data %>% ggplot(aes(`Current Loan Expenses (USD)`)) + 
+  geom_histogram(color = "black") +
+  theme_bw() + ggtitle("Current loan expenses distribution")
+```
+ The distribution is right skewed, this means that most customers have more than the average of loan expenses.
+
+```{r echo=FALSE, fig.height=4}
+loan_data %>% ggplot(
+  aes(`Current Loan Expenses (USD)`, `Loan Sanction Amount (USD)`)) +
+  geom_point() +
+  xlab("current loan exp") + ylab("loan sanction") +
+  theme_bw() + ggtitle("Loan sanction amount vs current loan expenses")
+```
+There is a strong correlation between the loan amount approved and the current loan expenses, this means the bank tend to approve loans for customers who are already honoring their current loans and that customers who have big expenses tend to apply for big loans. \
+
+### credit score
+
+```{r echo=FALSE, fig.height=3.5, message=FALSE, warning=FALSE}
+loan_data %>% ggplot(aes(`Credit Score`)) +
+  geom_histogram(color = "black") + theme_bw() +
+  ggtitle("credit score distribution")
+```
+ From the plot we can notice that the distribution is almost symmetric and that 80% of credit scores are between 620 and 820.
+
+```{r echo=FALSE, fig.height=4}
+loan_data %>% ggplot(
+  aes(`Credit Score`, `Loan Sanction Amount (USD)`)) +
+  geom_point() + theme_bw() + ylab("loan sanction") +
+  theme_bw() + ggtitle("Loan sanction vs credit score")
+```
+ Although there is a correlation between the two variables, it s not strong enough to conclude that the credit score may affect the loan sanction amount, this is because the amount depends more on the amount requsted which may not be correlated with the credit score. But the credit score still could be used to predict if a customer can get a credit or not at all.
+
+### Property age
+
+```{r echo=FALSE, fig.height=4, message=FALSE, warning=FALSE}
+loan_data %>% ggplot(aes(`Property Age`)) +
+  geom_histogram(color = "black") + 
+  xlim(c(0, 12000)) + theme_bw() +
+  ggtitle("Proprety age distribution")
+```
+ The distribution contains big outliers and is right skewed.
+
+```{r echo=FALSE, fig.height=4, message=FALSE, warning=FALSE}
+loan_data %>% ggplot(aes(`Property Age`, `Loan Sanction Amount (USD)`)) +
+  geom_point() + ylab("loan sanction")  + xlim(c(0, 12000)) +
+  theme_bw() + ggtitle("Loan sanction vs proprety age")
+```
+We see that the correlation between the two variables is not strong enough to help us make predictions. 
+
+### property price
+```{r echo=FALSE, fig.height=4}
+summary(loan_data$`Property Price`)
+
+```
+
+
+```{r echo=FALSE, fig.height=4, message=FALSE, warning=FALSE}
+loan_data %>% ggplot(aes(`Property Price`)) +
+  geom_histogram(color = "black") +
+  xlim(c(0, 6*10^5)) +
+  theme_bw() + ggtitle("Proprety price distribution")
+```
+The distribution is right skewed, most prices are below the mean.\
+
+There is some negative prices, this may be an error so we will replace them with the median since the distribution is not symmetric.
+```{r echo=FALSE}
+loan_data$`Property Price`[
+  loan_data$`Property Price` < 0] <- median(loan_data$`Property Price`)
+```
+
+```{r echo=FALSE, fig.height=4, message=FALSE, warning=FALSE}
+loan_data %>% ggplot(aes(`Property Price`, `Loan Sanction Amount (USD)`)) +
+  geom_point() +  ylab("loan sanction") +
+  theme_bw() + ggtitle("Loan sanction vs proprety price")
+```
+There is a strong correlation between the loan amount approved and property price, this is obvious since the amount requested depends on the property age.
+This correlation is very useful in predicting the loan amount.
+
+### loan sanction amount ####
+**Summary of the target variable**
+```{r echo=FALSE}
+summary(loan_data$`Loan Sanction Amount (USD)`)
+```
+
+```{r echo=FALSE, fig.height=3.5, message=FALSE, warning=FALSE}
+loan_data %>% ggplot(aes(`Loan Sanction Amount (USD)`)) +
+  geom_histogram(color = "black") + 
+  theme_bw() +
+  ggtitle("loan sanction amount distribution")
+```
+ We can see that the distribution is right skewed and that many customers (28%) didn't manage to get their request approved. \
+ 
+\vspace{1cm}
+### Percentage of approved loan amount:
+ The loan amount approved is calculated on the base of the requested loan, so it would be useful the make a variable in which we store the percentage approved of the requested loan.\
+ 
+ **Summary of approved percentage**
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+loan_data <- loan_data %>% 
+  mutate(approved_percentage = 
+           `Loan Sanction Amount (USD)` / `Loan Amount Request (USD)`)
+
+summary(loan_data$approved_percentage)
+```
+
+
+```{r echo=FALSE, fig.height=3.5, message=FALSE, warning=FALSE}
+loan_data %>% ggplot(aes(approved_percentage)) +
+  geom_histogram(color = "black") + 
+  theme_bw() +
+  ggtitle("approved_percentage distribution")
+```
+ From the plot we can see that in general the customers either get nothing from their requested amount, or they get between 60% and 85 %.
+
+### Correlation between continuous variables 
+ Let's plot the correlation between all the continuous variables.
+ \newpage
+**Correlation between continuous variables**
+```{r echo=FALSE}
+continuous_features <- loan_data %>% 
+  select(`Income (USD)`,
+         `Loan Sanction Amount (USD)`, `Loan Amount Request (USD)`,
+         Age, `Current Loan Expenses (USD)`, `Credit Score`, 
+         `Property Age`, `Property Price`, approved_percentage) %>%
+           names()
+
+loan_data %>% select(all_of(continuous_features))%>% cor() %>%
+corrplot(method = "number", type = "upper",  cl.cex = 0.7,
+         tl.cex = 0.8, tl.col = "blue")
+```
+
+ There is strong correlation between the sanction amount and : "the amount requested, the property price, the approved percentage and current loan expenses. there is also correlation with credit score even if not strong.
+ 
+ There is strong correlation between the amount requested and the property price.
+
+ The correlation between property age and income is 1, which is not normal, so let's drop the property age.
+```{r echo=FALSE}
+loan_data <- loan_data %>% select(-`Property Age`)
+continuous_features <- continuous_features[
+                                        continuous_features != "Property Age"]
+```
+
+## Categorical features exploration
+Now we will deal with the categorical features, but first let's see how many classes we have in each variable.
+
+**Distinct classes in categorical columns**
+```{r echo=FALSE}
+loan_data %>% select(-`Customer ID`) %>% select_if(is.character)  %>%
+  sapply(function(i){
+    n <- which(class(i) == "character")
+    length(unique(i))
+  }) %>% as.data.frame() %>% knitr::kable()
+```
+
+### Dependents
+
+```{r echo=FALSE, fig.height=4}
+loan_data %>% mutate(Dependents = as.factor(Dependents)) %>%
+  ggplot(aes(Dependents, fill = Dependents)) + 
+  geom_bar() +
+  xlab("") +theme_bw() + 
+  ggtitle("Dependents barplot")
+```
+ Most customers have 2 dependents.
+ 
+```{r echo=FALSE, fig.height=4, warning=FALSE}
+loan_data %>% mutate(Dependents = as.factor(Dependents)) %>%
+  ggplot(aes(Dependents, `Loan Sanction Amount (USD)`, fill = Dependents)) +
+  geom_boxplot() + ylim(c(0, 3*10^5)) + theme_bw() +
+  theme(legend.position = "none") +
+  ylab("loan sanction") + 
+  ggtitle("Boxplot of loan sanction vs dependents")
+```
+The number of dependents on its own doesn't seem to highly affect the loan sanction amount.
+
+### number of defaults
+
+  
+```{r echo=FALSE, fig.height=4}
+loan_data %>% mutate(`No. of Defaults` = as.factor(`No. of Defaults`)) %>%
+  ggplot(aes(`No. of Defaults`, fill = `No. of Defaults`)) + 
+  geom_bar() +theme_bw() + xlab("") +
+  ggtitle("Number of defaults barplot") +
+  theme(axis.text.x = element_blank())
+```
+
+Most customers don't have past defaults.
+
+```{r echo=FALSE, fig.height=4, warning=FALSE}
+loan_data %>% mutate(`No. of Defaults` = as.factor(`No. of Defaults`)) %>%
+  ggplot(aes(`No. of Defaults`,
+            `Loan Sanction Amount (USD)`, fill =`No. of Defaults`)) +
+  geom_boxplot() + scale_y_continuous(trans = "log10") +
+  theme_bw() + ylab("loan sanction") + 
+  ggtitle("Boxplot of loan sanction vs number of defaults") +
+  theme(legend.position = "none")
+```
+The number of defaults doesn't seem to highly affect the loan sanction amount.
+
+### has credit card
+
+ 
+```{r echo=FALSE, fig.height=4}
+loan_data %>% ggplot(
+  aes(`Has Active Credit Card`, fill = `Has Active Credit Card`)) +
+  geom_bar() + theme_bw() + xlab("") +
+  ggtitle("Barplot of has credit card") + 
+  theme(axis.text.x = element_blank())
+```
+The number of clients who have or don't have credit card is close.
+
+```{r echo=FALSE, fig.height=4}
+loan_data %>% ggplot(
+  aes(`Has Active Credit Card`, `Loan Sanction Amount (USD)`,
+      fill = `Has Active Credit Card`)) +
+  geom_boxplot() + theme_bw() +
+  ylab("loan sanction") + xlab("") + 
+  ggtitle("Boxplot of loan sanction vs has credit card") + 
+  theme(axis.text.x = element_blank())
+```
+
+As we can see the fact of having or not having a credit card doesn't affect the amount of loan approved.\
+
+### Property type
+
+```{r echo=FALSE, fig.height=3.5}
+loan_data %>% mutate(`Property Type` = as.factor(`Property Type`)) %>%
+  ggplot(aes(`Property Type`, fill = `Property Type`)) +
+  geom_bar() + theme_bw() + xlab("") +
+  ggtitle("Barplot Property type") + 
+  theme(axis.text.x = element_blank())
+```
+Even if the proprety type "1" is on top, the number of the three classes is close.
+
+
+
+```{r echo=FALSE, fig.height=3.5}
+loan_data %>% mutate(`Property Type` = as.factor(`Property Type`)) %>%
+  ggplot(aes(`Property Type`, `Loan Sanction Amount (USD)`,
+             fill = `Property Type`)) + geom_boxplot() +
+  theme_bw() + ylab("loan sanction") + xlab("") +
+  theme(axis.text.x = element_blank())
+```
+The property type on its own doesn't seem to affect the amount of approved loan. \
+
+### Property location
+
+ 
+```{r echo=FALSE, fig.height=3.5}
+loan_data %>% ggplot(aes(`Property Location`, fill = `Property Location`)) +
+  geom_bar(color = "black") + theme_bw() + xlab("") +
+  ggtitle("Barplot Property location") + 
+  theme(axis.text.x = element_blank())
+```
+The number of property location classes is close.\
+
+
+```{r echo=FALSE, fig.height=3.5}
+loan_data %>% 
+  ggplot(aes(`Property Location`,
+             `Loan Sanction Amount (USD)`, fill = `Property Location`)) +
+  geom_boxplot() + 
+  theme_bw() + ylab("loan sanction") + xlab("") +
+  ggtitle("Boxplot of loan sanction vs Property location") + 
+  theme(axis.text.x = element_blank())
+```
+ The property location doesn't seem to affect the loan sanctio amount.\
+ 
+### coapplicant
+
+
+
+```{r echo=FALSE, fig.height=3.5}
+loan_data %>% mutate(`Co-Applicant` = as.factor(`Co-Applicant`)) %>%
+  ggplot(aes(`Co-Applicant`, fill = `Co-Applicant`)) +
+  geom_bar(color = "black") + theme_bw() + xlab("") +
+  ggtitle("Co-applicant barplot") + 
+  theme(axis.text.x = element_blank())
+```
+Most customers have one co-applicant for their requested loans.
+
+Co_applicant must be  a positive, so we assign negative value to the prevalent class "1".
+```{r echo=FALSE}
+loan_data$`Co-Applicant`[
+  which(loan_data$`Co-Applicant` < 0)] <- 1
+```
+
+
+```{r echo=FALSE, fig.height=3.5}
+loan_data %>% mutate(`Co-Applicant` = as.factor(`Co-Applicant`)) %>%
+  ggplot(aes(`Co-Applicant`,
+             `Loan Sanction Amount (USD)`, fill =`Co-Applicant`)) +
+  geom_boxplot() + theme_bw() +
+  ylab("loan sanction amount") + xlab("") +
+  ggtitle("Boxplot of loan sanction vs co-applicant") + 
+  theme(axis.text.x = element_blank())
+```
+We notice that the most approved loans are the ones that had more than one applicant. The requested loan with no co-applicant seems to be rejected in general.\
+
+### Gender
+
+```{r echo=FALSE, fig.height=3.5}
+loan_data %>% ggplot(aes(Gender, fill = Gender)) +
+  geom_bar() + xlab("") + 
+  ggtitle("Gender barplot") + 
+  theme(axis.text.x = element_blank())
+```
+There is as many female as male customers in the data set.
+
+```{r echo=FALSE, fig.height=3.5}
+loan_data %>% ggplot(aes(x = Gender, y = `Loan Sanction Amount (USD)`, 
+                         fill = Gender)) +
+  geom_boxplot() + xlab("") + ylab("loan amount") + 
+  ggtitle("Boxplot of loan sanction vs gender") + 
+  theme(axis.text.x = element_blank())
+```
+The fact of being a male or female doesn't affect the amount of approved loan.\
+
+### income stability 
+
+```{r echo=FALSE, fig.height=3.5}
+loan_data %>% ggplot(aes(`Income Stability`, fill = `Income Stability`)) +
+  geom_bar() + xlab("") + 
+  ggtitle("Income stability barplot") + 
+  theme(axis.text.x = element_blank())
+```
+We can notice that most customers have low income stability.
+
+```{r echo=FALSE, fig.height=3.5}
+loan_data %>% 
+  ggplot(aes(`Income Stability`,
+             `Loan Sanction Amount (USD)`, fill = `Income Stability`)) +
+  geom_boxplot() + theme_bw() +
+  xlab("") + ylab("loan amount") + 
+  ggtitle("Boxplot of loan sanction vs income stability") + 
+  theme(axis.text.x = element_blank())
+
+```
+From the boxplot we can see that the fact of having a high income stability affect positively the loan amount approved, but the fact of having a low income doesn't affect highly the amount approved.\
+
+### profession
+```{r echo=FALSE, fig.height=3.5}
+loan_data$Profession %>% table() %>% sort(decreasing = TRUE) %>% as.data.frame() %>% knitr::kable()
+```
+There is 8 classes of profession in the data. Some classes have insignificant number, let's assign them to a new class called "other".
+
+```{r echo=FALSE}
+loan_data$Profession[loan_data$Profession %in% c(
+  "Maternity leave", "Student",
+  "Businessman","Unemployed")] <- "other"
+```
+
+
+
+```{r echo=FALSE, fig.height=3.5}
+loan_data %>% ggplot(aes(Profession, fill = Profession)) + 
+  geom_bar() +xlab("") + theme_bw() +
+  ggtitle("Profession barplot") + 
+  theme(axis.text.x = element_blank())
+```
+Most customers have the profession working, this means that this class is not a profession but a category that could contain many professions.
+
+
+```{r echo=FALSE, fig.height=3.5}
+loan_data %>% 
+  ggplot(aes(Profession,
+             `Loan Sanction Amount (USD)`, fill = Profession)) +
+  geom_boxplot() + theme_bw() +
+  xlab("") + ylab("loan amount") + 
+  ggtitle("Boxplot of loan sanction vs Profession") + 
+  theme(axis.text.x = element_blank())
+```
+The profession on its own doesn't affect the amount approved.\
+
+### Type of employment
+
+
+```{r echo=FALSE, fig.height=3.5}
+loan_data %>% ggplot(aes(`Type of Employment` , fill = `Type of Employment`)) +
+  geom_bar() +xlab("") + theme_bw() +
+  ggtitle("Type of Employment barplot") + 
+  theme(axis.text.x = element_blank(), legend.key.size = unit(0.3, "cm"))
+```
+The class "others" are more likely to apply for a home loan and the number of applicant differ depending on the type of employment.
+
+```{r echo=FALSE, fig.height=4}
+loan_data %>% 
+  ggplot(aes(`Type of Employment`,
+             `Loan Sanction Amount (USD)`, fill = `Type of Employment`)) +
+  geom_boxplot() + theme_bw() +
+  xlab("") + ylab("loan amount") + 
+  ggtitle("Boxplot of loan sanction vs type of employment") + 
+  theme(axis.text.x = element_blank(), legend.key.size = unit(0.3, "cm"))
+```
+The distribution of the loan approved differ slightly from type of employment to other. We notice that some types have the chance of getting their request rejected more than others. This could help us define which customers are likely to have their loan sanction amount to be null.
+
+### Location
+
+```{r echo=FALSE, fig.height=3.5}
+loan_data %>% ggplot(aes(Location, fill = Location)) + 
+  geom_bar() +xlab("") + theme_bw() +
+  ggtitle("location barplot") + 
+  theme(axis.text.x = element_blank())
+```
+Most customers are located in semi_urbain area.
+
+
+```{r echo=FALSE, fig.height=4}
+loan_data %>% 
+  ggplot(aes(Location,`Loan Sanction Amount (USD)`, fill = Location)) +
+  geom_boxplot() + theme_bw() +
+  xlab("") + ylab("loan amount") + 
+  ggtitle("Boxplot of loan sanction vs Location") + 
+  theme(axis.text.x = element_blank())
+```
+We see from the boxplot that customers which are located in Urban area are most likely to get their loan request approved and that with a higher loan amount.
+
+### Expenses types :
+
+```{r echo=FALSE, fig.height=3.5}
+loan_data %>% select(`Expense Type 1`, `Expense Type 2`) %>% 
+  gather(key = "type", value = "value") %>% 
+  ggplot(aes(type, fill = value)) + geom_bar() + theme_bw() +
+  ggtitle("Expense Type barplot") + xlab("") 
+```
+
+  We notice that Customers have expenses of type 2 more than  they have of type1.
+
+
+```{r echo=FALSE, fig.height=4}
+  loan_data %>%  gather(key = "type", value = "value", `Expense Type 1`, `Expense Type 2`) %>% 
+    ggplot(aes(type, `Loan Sanction Amount (USD)`, color = value)) +
+    geom_boxplot() + theme_bw()
+    ggtitle("Boxplot of loan sanction vs Expense Type 1")  
+    
+```
+  As we see the type of expenses on its own doesn't seem to affect the outcome of the loan sanction amount.
+
+
+\newpage
+# Data processing :
+
+## Drop features no needed in models building ####
+As we don't need the property ID we will drop it for now.  The customer ID is unique  and sufficient to make final submission in the case we wanted to.
+```{r echo=FALSE}
+loan_data <- loan_data %>% select(-`Property ID`)
+```
+
+ 
+
+## Binarize categorical features 
+
+ We have already cleaned our data, so now we will binarize th e categorical features and scale the continuous ones.
+
+```{r echo=FALSE}
+cat_var <- loan_data %>% select(-all_of(continuous_features)) %>%
+  select(-`Customer ID`) %>% names()
+```
+ 
+ Th binarization of all the categorical data will make easy to work with a variety of models.
+  
+```{r echo=FALSE}
+# Profession
+loan_data <- loan_data %>%
+  mutate(value = as.integer(Profession %in% Profession)) %>%
+  spread(key = Profession, value = value, fill = 0)
+```
+  
+
+```{r echo=FALSE}
+# Location
+loan_data <- loan_data %>%
+  mutate(value = as.integer(Location %in% Location)) %>%
+  spread(key = Location, value = value, fill = 0)
+```
+
+```{r echo=FALSE}
+# Property location
+loan_data <- loan_data %>%
+  mutate(value = as.integer(
+    `Property Location` %in% `Property Location`)) %>%
+  spread(key = `Property Location`, value = value, fill = 0)
+```
+
+
+ 
+```{r echo=FALSE}
+# Type of employment
+loan_data <- loan_data %>%
+  mutate(value = as.integer(
+    `Type of Employment` %in% `Type of Employment`)) %>%
+  spread(key = `Type of Employment`, value = value, fill = 0)
+```
+
+
+
+```{r echo=FALSE}
+### Property type
+loan_data <- loan_data %>% 
+  mutate(`Property Type` = paste("prop type", `Property Type`)) %>%
+  mutate(value = as.integer(
+    `Property Type` %in% `Property Type`)) %>%
+  spread(key = `Property Type`, value = value, fill = 0)
+
+```
+
+
+
+```{r echo=FALSE}
+# Dependents
+loan_data <- loan_data %>% 
+  mutate(Dependents = paste("dependents", Dependents)) %>%
+  mutate(value = as.integer(
+    Dependents %in% Dependents)) %>%
+  spread(key = Dependents, value = value, fill = 0)
+```
+
+
+```{r echo=FALSE}
+# Has credit card
+loan_data <- loan_data %>%
+  mutate(value = as.integer(
+    `Has Active Credit Card` %in% `Has Active Credit Card`)) %>%
+  spread(key = `Has Active Credit Card`, value = value, fill = 0)
+
+
+```
+
+
+```{r echo=FALSE}
+# Gender
+loan_data$Gender <- ifelse(loan_data$Gender == "F", 1, 0)
+
+```
+
+
+```{r echo=FALSE}
+# Income stability
+loan_data$`Income Stability` <- ifelse(loan_data$`Income Stability` == "High",
+                                       1, 0)
+```
+
+```{r echo=FALSE}
+# Expenses type 1
+loan_data$`Expense Type 1` <- ifelse(loan_data$`Expense Type 1` == "Y", 1, 0)
+```
+
+
+```{r echo=FALSE}
+# Expenses type2
+loan_data$`Expense Type 2` <- ifelse(loan_data$`Expense Type 2` == "Y", 1, 0)
+```
+
+
+**After binarisation the data now will looks like**
+```{r echo=FALSE}
+loan_data %>% select(1,7, 25, 29, 33 ,35 , 38, 40) %>% 
+  head() %>% knitr::kable()
+```
+
+
+
+## scale continuous features exept the outcome
+
+The scale function will permit us to center and scale continuous features. This is very imortant since it allows us to normalize the variation in the data.
+```{r echo=FALSE}
+cont_var <- continuous_features[!continuous_features %in% 
+                              c("Loan Sanction Amount (USD)")]
+```
+
+
+### The data will look like this 
+```{r echo=FALSE}
+loan_data <- loan_data %>% mutate_at(cont_var, scale) %>% as.data.frame()
+loan_data %>% select(c(1, 5, 6, 10, 30, 40)) %>% head() %>% knitr::kable()
+```
+
+
+## Split data into train and test set
+```{r echo=FALSE, warning=FALSE}
+y <- loan_data$`Loan Sanction Amount (USD)`
+
+set.seed(1, sample.kind = "Rounding")
+
+test_index <- createDataPartition(y, times = 1, p = 0.2, list = FALSE)
+
+test_set <- loan_data %>% dplyr::slice(test_index)
+train_set <- loan_data %>% dplyr::slice(-test_index)
+
+train_y <- train_set$`Loan Sanction Amount (USD)`
+
+train_x <- train_set %>% 
+  select(-c(`Customer ID`, `Loan Sanction Amount (USD)`))
+
+test_x <- test_set %>% 
+  select(-c(`Customer ID`, `Loan Sanction Amount (USD)`))
+
+test_y <- test_set$`Loan Sanction Amount (USD)`
+```
+
+We will split the data in a training and testing sets and define the features and outcomes for each one.
+After splitting the data set we get :\
+train_x : the training features used to train models\
+test_y  : the training outcome used for training\
+test_x  : the testing features used to get predictions\
+test_y  : the testing outcome used for measure the RMSE\
+
+
+# Building models
+
+**metric used :** we well the RMSE function of the caret package
+$$\mbox{RMSE} = \sqrt{\frac{1}{n}\sum_{t=1}^{n}e_t^2}$$
+
+## linear regression
+ We will try a linear model with lm() under caret:: using only the continuous continuous features.
+
+```{r echo=FALSE, warning=FALSE}
+### train the model 
+options(digits = 5)
+set.seed(1, sample.kind = "Rounding")
+
+trControl  <- trainControl(method="repeatedcv",
+                                number = 4,
+                                repeats = 5) 
+
+train_lm <- train(train_x[cont_var], train_y, method = "lm",
+                  trControl = trControl)
+```
+
+
+```{r echo=FALSE}
+### Get the predictions
+
+pred_lm <- predict(train_lm, newdata = test_x[cont_var])
+```
+
+
+### Get results 
+After training the model with cross validation we apply it on the test set and get the rmse.
+```{r echo=FALSE, fig.height=4}
+rmse_lm <- RMSE(pred = pred_lm, test_y)
+
+paste("The rmse with lm is", rmse_lm)
+
+plot(pred_lm, test_y)
+
+results <- data.frame(method = "lm", rmse = rmse_lm)
+```
+
+ we see that the prediction for value different then zero are good otherwise
+for the ones near zero they are not
+it would be better to fit a model to predict null targets first if we 
+insisted to perform a linear model.
+
+
+## Rpart model
+```{r echo=FALSE, warning=FALSE}
+### train model
+set.seed(1, sample.kind = "Rounding")
+
+trControl  <- trainControl(method="repeatedcv",
+                           number = 4,
+                           repeats = 5)
+
+train_rpart<- train(train_x, train_y, method = "rpart", trControl = trControl)
+
+```
+
+
+```{r echo=FALSE}
+### prediction 
+
+pred_rpart <- predict(train_rpart, newdata = test_x)
+```
+
+
+### Get results 
+After training the model with cross validation we apply it on the test set and get the rmse.
+```{r echo=FALSE, fig.height=4}
+rmse_rpart <- RMSE(pred = pred_rpart, test_y)
+paste("The rmse with rpart model is", rmse_rpart)
+
+plot(pred_rpart, test_y)
+
+results <- results %>% add_row(method = "rpart", rmse = rmse_rpart)
+results %>% knitr::kable()
+```
+
+We see that the rmse has dropped less than lm but not enough, we are still making big mistakes.
+
+## Random forest
+```{r echo=FALSE, warning=FALSE}
+### train the model
+tuneGrid <- expand.grid(.mtry = 1: 10)
+control <- trainControl(method="cv", number = 10, p = 0.8)
+
+set.seed(1, sample.kind = "Rounding")
+train_rf <- train(train_x, train_y,
+                 method = "rf",
+                 tuneGrid = tuneGrid,
+                 trControl = control,
+                 nodesize = 10,
+                 ntree = 10)
+```
+
+
+### Get results 
+After training the model with cross validation we apply it  with the optimal tunes on the test set and get the rmse. We could have tuned the model more but thid woud have taken much time.
+```{r echo=FALSE}
+ ### prediction 
+pred_rf <- predict(train_rf, newdata = test_x)
+
+rmse_rf <- RMSE(pred = pred_rf, test_y)
+
+paste("The rmse  with Rondom forest is", rmse_rf)
+
+results <- results %>% add_row(method = "rf", rmse = rmse_rf)
+results %>% knitr::kable()
+```
+
+We see that the results with Rf are much better, now we are not making big mistakes like the other models.
+
+```{r echo=FALSE, fig.height=4}
+plot(pred_rf, test_y)
+```
+As we see the predictions now are correlated with the loan amount, but we are still making mistakes especially for around the zero loan amount, can we do better.
+
+## Xgboost model ####
+We will first process our data to fit the Xgboost model, we use cross-validation with Xgboost to find the best params, we train the model on the training set and finally apply it on the test set to get the predictions.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+set.seed(1, sample.kind = "Rounding")
+
+### define final training and testing sets
+dtrain <- xgb.DMatrix(as.matrix(train_x), 
+                      label = train_y)
+
+dtest <- xgb.DMatrix(as.matrix(test_x), 
+                     label = test_y)
+```
+
+
+
+```{r echo=FALSE}
+### define watchlist
+watchlist <- list(train = dtrain, eval = dtest)
+
+### define params
+params <- list(max_depth = 6, 
+               objective = "reg:squarederror",
+               silent = 0)
+```
+
+
+```{r echo=FALSE}
+### use cross validation to find the best tunes
+
+cv_model <- xgb.cv(params = params,
+                   data = dtrain, 
+                   nrounds = 150, 
+                   watchlist = watchlist,
+                   nfold = 5,
+                   prediction = TRUE,
+                   verbose = FALSE) # prediction of cv folds
+```
+
+
+### Get the best nround using crossvalidation.
+```{r echo=FALSE}
+### best nround
+cv_model$evaluation_log %>%
+  filter(test_rmse_mean == min(test_rmse_mean))
+```
+
+
+
+```{r echo=FALSE}
+### define final model : 
+final = xgboost(data = dtrain, max.depth = 5, nrounds = 150, verbose = FALSE)
+
+```
+
+
+### Get results
+After apllying the model on test set we get the predictions and rmse.
+```{r echo=FALSE}
+### Get predictions 
+pred_xgboost <- predict(final, data.matrix(test_x))
+
+### Get results 
+
+rmse_xgboost <- RMSE(pred = pred_xgboost, test_y)
+paste(c("The rmse with Xgboost is", rmse_xgboost))
+
+results <- results %>% add_row(method = "xgboost", rmse = rmse_xgboost)
+results %>% knitr::kable()
+```
+
+We can see now clearly that with extreme gradinat boosting the results are far better than the other models. The rmse is now very small and in the area of home loans is acceptable.
+
+```{r echo=FALSE}
+plot(pred_xgboost, test_y)
+```
+
+We can see that the predictions now are close to our target, the correlation between predictions and the loan amount is very strong.\
+  
+
+# Conclusion :
+
+
+The project goal was to build a model that predict the amount home loan to be approved for a bank customer. Our approach undertaken here relied on an initial exploratory analysis with data visualizations, then we start building models based on the assumptions made in the last part. 
+  
+The overall objective to training a machine learning algorithm of course resides in being able to generate predictions.
+With Xgboost model, we managed to reach an RMSE of 777, which is a very good results since the amounts of home loan are much more bigger.
+ We still could get better results if we include more features. Also an approach based on making a classification first of which customer could get
+ a loan and which will have his request rejected, before applying regression to find the exact amount would make  the results better.
+  
+
+  
