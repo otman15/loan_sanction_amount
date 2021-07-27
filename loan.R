@@ -1,9 +1,13 @@
-# Introduction ####
+######### HarvardX's Data Science Professional Certificate Capstone ##########
+ ##################Loan sanction amount project###############################
+  ######################### R Script########################################
 
-## Install all needed libraries if it is not present ####
+
+## Install all needed libraries if  not present ####
 if(!require(tidyverse)) install.packages("tidyverse") 
 if(!require(caret)) install.packages("caret")
 if(!require(data.table)) install.packages("data.table")
+if(!require(knitr)) install.packages("knitr")
 if(!require(corrplot)) install.packages("corrplot")
 if(!require(xgboost)) install.packages("Xgboost")
 
@@ -13,9 +17,10 @@ library(data.table)
 library(caret)
 library(xgboost)
 library(corrplot)
+library(knitr)
 
 ## load data ####
-unzip("loan_amount.zip")
+unzip("loan.zip")
 
 loan_data <- fread("train.csv", na.strings = "")
 file.remove("test.csv", "sample_submission.csv")
@@ -34,6 +39,10 @@ str(loan_data)
 names(loan_data)
 
 loan_data <- loan_data %>% select(-Name)
+
+## customer ID : all the customers are unique ####
+length(unique(loan_data$`Customer ID`))
+
 ## looking for nas ####
 nas <- sapply(loan_data, function(i){
   sum(is.na(i))
@@ -155,7 +164,7 @@ loan_data$`Current Loan Expenses (USD)`[which(
 
   # replace loan expenses < 0
 loan_data$`Current Loan Expenses (USD)`[which(
-  loan_data$`Current Loan Expenses (USD)` == -999)] <- median(
+  loan_data$`Current Loan Expenses (USD)`  < 0)] <- median(
     loan_data$`Current Loan Expenses (USD)`, na.rm = TRUE)
 
 
@@ -197,14 +206,7 @@ loan_data %>% select(-c(`Customer ID`)) %>% select_if(is.character)  %>%
 
 
 ## Exploring continuous features first ####
- ### heatmap of continuous features ####
-
-M <- loan_data %>% select_if(is.numeric) %>% cor()
-heatmap(M, scale = "column")
-rm(M)
-
- ### customer ID : all the customers are unique
-length(unique(loan_data$`Customer ID`))
+ 
 
  ### age ####
 
@@ -289,7 +291,7 @@ loan_data %>% ggplot(aes(`Property Age`)) +
 
   #### Loan sanction vs property age ####
 loan_data %>% ggplot(aes(`Property Age`, `Loan Sanction Amount (USD)`)) +
-  geom_point() + ylab("loan sanction")  + xlim(c(0, 12000)) +
+  geom_point() + ylab("loan sanction")  + xlim(c(0, 2*10^4)) +
   theme_bw() + ggtitle("Loan sanction vs proprety age")
 
 ### property price ####
@@ -299,6 +301,12 @@ loan_data %>% ggplot(aes(`Property Price`)) +
   geom_histogram(color = "black") +
   xlim(c(0, 6*10^5)) +
   theme_bw() + ggtitle("Proprety price distribution")
+
+#There is some negative prices replace them
+loan_data$`Property Price`[
+  loan_data$`Property Price` < 0] <- median(loan_data$`Property Price`)
+
+
 
   #### Loan sanction amount vs property price ####
 loan_data %>% ggplot(aes(`Property Price`, `Loan Sanction Amount (USD)`)) +
@@ -343,9 +351,7 @@ loan_data %>% select(all_of(continuous_features))%>% cor() %>%
 corrplot(method = "number", type = "upper",  cl.cex = 0.7,
          tl.cex = 0.8, tl.col = "blue")
 
-# the correlation between property age and income is 1, which is weird for me,
-# if we look closer we find they have the sames values, the income must have
-# been taken wrongly for the property age, so let drop the property age.
+# the correlation between property age and income is 1 :  drop the property age.
 loan_data <- loan_data %>% select(-`Property Age`)
 continuous_features <- continuous_features[
                                     continuous_features != "Property Age"]
@@ -658,7 +664,8 @@ loan_data$`Expense Type 1` <- ifelse(loan_data$`Expense Type 1` == "Y", 1, 0)
 loan_data$`Expense Type 2` <- ifelse(loan_data$`Expense Type 2` == "Y", 1, 0)
 
 # the data now looks like :
-head(loan_data)
+loan_data %>% select(1,7, 25, 29, 33 ,35 , 38, 40) %>% 
+  head()
 
 ### scale our continuous data exept the outcome
 
@@ -673,7 +680,7 @@ rm(continuous_features)
 loan_data <- loan_data %>% mutate_at(cont_var, scale) %>% as.data.frame()
 
 
-head(loan_data)
+loan_data %>% select(c(1, 5, 6, 10, 30, 40)) %>% head()
 
 ## Split data into train and test set ####
 
@@ -700,6 +707,7 @@ test_y <- test_set$`Loan Sanction Amount (USD)`
 
 ##metric used : we well the RMSE function of the caret package
 RMSE
+
 
 ## linear regression ####
 # with continuous variables only !
@@ -764,7 +772,7 @@ set.seed(1, sample.kind = "Rounding")
 
  ### train the model
 tuneGrid <- expand.grid(.mtry = 1: 10)
-control <- trainControl(method="cv", number = 10, p = 0.8)
+control <- trainControl(method="cv", number = 5, p = 0.8)
 
 train_rf <- train(train_x, train_y,
                  method = "rf",
@@ -789,7 +797,6 @@ results
 
 ## Xgboost model ####
 
-set.seed(1, sample.kind = "Rounding")
 
 ### define final training and testing sets
 dtrain <- xgb.DMatrix(as.matrix(train_x), 
@@ -808,6 +815,7 @@ params <- list(max_depth = 6,
 
  
 ### use cross validation to find the best tunes
+set.seed(1, sample.kind = "Rounding")
 
 cv_model <- xgb.cv(params = params,
                    data = dtrain, 
@@ -820,9 +828,9 @@ cv_model <- xgb.cv(params = params,
 cv_model$evaluation_log %>%
   filter(test_rmse_mean == min(test_rmse_mean))
 
-
-
 ### define final model : 
+set.seed(1, sample.kind = "Rounding")
+
 final = xgboost(data = dtrain, max.depth = 5, nrounds = 150, verbose = FALSE)
 
 
