@@ -1,6 +1,6 @@
 ---
 title: "Loan Sanction Amount Prediction Project"
-subtitle : "Harvardx's Data Science Professional Certificate" 
+subtitle : "Harvardx's Data Science Professional Certificate PH125.9x" 
 author: "Otman Cherrati"
 date: "7/25/2021"
 output: 
