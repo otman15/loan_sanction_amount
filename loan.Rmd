@@ -30,7 +30,7 @@ Our goal in this analysis is to predict the loan amount that can be sanctioned t
 We will start by taking a look on the dataset and then explore the different variables to see if there is any trends that can help us in the analysis.
 After cleaning the data we will start building and testing our models.
 We will discuss the result obtained by the different models and chose the one that performed the best.
-The evaluation is based on the RMSE - Root Mean Squared Error built under the caret package. $$\mbox{RMSE} = \sqrt{\frac{1}{n}\sum_{i=1}^{n}(y_i - \hat{y})^2}$$
+The evaluation is based on the RMSE - Root Mean Squared Error built under the caret package. $$\mbox{RMSE} = \sqrt{\frac{1}{n}\sum_{i=1}^{n}(y_i - \hat{y_i})^2}$$
   \vspace{0.5cm}
   
 ## Packages used :
