@@ -1269,6 +1269,7 @@ We can see that the predictions are close to the target, we are not making big m
 
 # Conclusion :
 
+\vspace{1.5cm}
 
 The project goal was to build a model that predict the amount home loan to be approved for a bank customer. Our approach undertaken here relied on an initial exploratory analysis with data visualizations, then we start building models based on the assumptions made in the last part. 
   
