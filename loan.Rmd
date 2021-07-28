@@ -1,6 +1,6 @@
 ---
 title: "Loan Sanction Amount Prediction Project"
-subtitle : "Harvardx's Data Science Professional Certificate PH125.9x" 
+subtitle : "HarvardX's Data Science Professional Certificate PH125.9x" 
 author: "Otman Cherrati"
 date: "July 25, 2021"
 output: 
@@ -25,7 +25,7 @@ knitr::opts_chunk$set(echo = TRUE, fig.align = 'left', cache=FALSE,
 
   With rising property rates, most people avail home loans to buy their dream houses. The bank only lends up to 80% of the total amount based on a person's finances (salary, outgoing expenses, existing loans, etc.). You will need to make the rest of the payment yourself after the bank tells you how much they can lend.
 
-## Object :
+## Object 
 Our goal in this analysis is to predict the loan amount that can be sanctioned to customers who have applied for a home loan using the features provided in the dataset (by a XYZ Bank). We will do this by building a model capable of generating predictions of the loan amount  to be approved for a client using a training set.
 We will start by taking a look on the dataset and then explore the different variables to see if there is any trends that can help us in the analysis.
 After cleaning the data we will start building and testing our models.
@@ -33,7 +33,7 @@ We will discuss the result obtained by the different models and chose the one th
 The evaluation is based on the RMSE - Root Mean Squared Error built under the caret package. $$\mbox{RMSE} = \sqrt{\frac{1}{n}\sum_{i=1}^{n}(y_i - \hat{y_i})^2}$$
   \vspace{0.5cm}
   
-## Packages used :
+## Packages used 
 
   **tidyverse** \
   **data.table** \
@@ -72,7 +72,9 @@ sessionInfo()
 
 
 \vspace{1cm}
-## Load the loan data set :
+## Load the loan data set 
+
+The zip file was loaded from kaggle, we read it and assign the train data to loan_data.
 ```{r, include=FALSE, echo=FALSE}
 unzip("loan.zip")
 loan_data <- fread("train.csv", na.strings = "")
@@ -1066,7 +1068,7 @@ test_x  : the testing features used to get predictions\
 test_y  : the testing outcome used to measure the RMSE\
 
 
-# Building models
+# Building models :
 
 **Metric used :** we well use the RMSE function of the caret package
 $$\mbox{RMSE} = \sqrt{\frac{1}{n}\sum_{i=1}^{n}(y_i - \hat{y_i})^2}$$
